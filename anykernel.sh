@@ -36,11 +36,15 @@ patch_vbmeta_flag=auto
 # Set home directory (AnyKernel working directory)
 home=$(pwd)
 
-## Deep cleanup - removes ALL traces of previous kernel
+## Deep cleanup - removes persistent kernel configs
 deep_kernel_cleanup() {
     ui_print "→ Cleaning old kernel configs..."
 
     {
+        # NOTE: Only clean persistent storage (/data paths)
+        # DO NOT manipulate live system state (sysfs/procfs) in recovery mode
+        # Live system cleanup happens in post-boot script instead
+
         # 1. Module cleanup (vendor + vendor_dlkm + system)
         if [ -d /data/vendor/modules ]; then
             rm -rf /data/vendor/modules/*
@@ -51,46 +55,24 @@ deep_kernel_cleanup() {
             rm -f /vendor_dlkm/lib/modules/*/modules.* 2>/dev/null
         fi
 
-        # System modules (older devices)
         [ -d /data/system/modules ] && rm -rf /data/system/modules/*
 
-        # 2. Sysctl & kernel parameters
+        # 2. Sysctl & kernel parameters (persistent configs only)
         rm -rf /data/vendor/sysctl/* 2>/dev/null
         rm -f /data/local/kernel.sysctl 2>/dev/null
         rm -f /data/vendor/etc/sysctl.d/*.conf 2>/dev/null
 
-        # 3. Scheduler configs (complete reset)
+        # 3. Scheduler configs (persistent storage only)
         rm -rf /data/vendor/scheduler/* 2>/dev/null
-
-        # Reset schedtune/cgroup values
-        if [ -d /dev/stune ]; then
-            for d in /dev/stune/*/; do
-                [ -f "${d}schedtune.boost" ] && echo 0 > "${d}schedtune.boost" 2>/dev/null
-                [ -f "${d}schedtune.prefer_idle" ] && echo 0 > "${d}schedtune.prefer_idle" 2>/dev/null
-                [ -f "${d}schedtune.sched_boost" ] && echo 0 > "${d}schedtune.sched_boost" 2>/dev/null
-            done
-        fi
-
-        # Remove custom cgroup configs
         rm -rf /data/vendor/cgroup/* 2>/dev/null
 
-        # 4. I/O scheduler reset (set to none, let kernel decide default)
+        # 4. I/O scheduler configs (persistent storage only)
         rm -rf /data/vendor/iosched/* 2>/dev/null
-        for q in /sys/block/*/queue/scheduler; do
-            if [ -f "$q" ]; then
-                echo "none" > "$q" 2>/dev/null || echo "noop" > "$q" 2>/dev/null
-            fi
-        done
 
-        # 5. CPUFreq & governor cleanup
+        # 5. CPUFreq & governor cleanup (persistent storage only)
         rm -rf /data/vendor/cpufreq/* 2>/dev/null
         rm -rf /data/system/cpufreq/* 2>/dev/null
         rm -rf /data/vendor/perf/* 2>/dev/null
-
-        # Reset governor to default
-        for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-            [ -f "$gov" ] && echo "schedutil" > "$gov" 2>/dev/null
-        done
 
         # 6. Thermal configs
         rm -rf /data/vendor/thermal/* 2>/dev/null
@@ -101,19 +83,7 @@ deep_kernel_cleanup() {
         rm -rf /data/vendor/kernel/* 2>/dev/null
         rm -rf /data/kernel/* 2>/dev/null
 
-        # Clear kernel ring buffer
-        dmesg -c > /dev/null 2>&1
-
-        # 8. BPF/eBPF complete cleanup
-        if [ -d /sys/fs/bpf ]; then
-            # Unpin all BPF programs and maps
-            find /sys/fs/bpf -type f -delete 2>/dev/null
-
-            # Remount clean BPF filesystem
-            umount /sys/fs/bpf 2>/dev/null
-            mount -t bpf bpf /sys/fs/bpf 2>/dev/null
-        fi
-
+        # 8. BPF/eBPF persistent data only
         [ -d /data/vendor/bpf ] && rm -rf /data/vendor/bpf/* 2>/dev/null
 
         # 9. Device tree overlays cleanup
@@ -131,14 +101,14 @@ deep_kernel_cleanup() {
         rm -f /data/cache/kernel 2>/dev/null
         rm -f /data/bootconfig 2>/dev/null
 
-        # 12. Old Templar configs (if exists from previous install)
+        # 12. Old kernel init scripts
         rm -f /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
         rm -f /data/local/tmp/templar_init.log 2>/dev/null
 
         # 13. Sync to ensure all writes complete
         sync
 
-        ui_print "  ✓ Cache cleared"
+        ui_print "  ✓ Persistent configs cleared"
     } 2>/dev/null
 }
 
