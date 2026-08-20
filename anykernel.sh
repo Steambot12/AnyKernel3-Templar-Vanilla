@@ -426,6 +426,14 @@ sleep 5
     # Disable watermark boost (LMKD handles memory pressure)
     echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
 
+    # Reduce vblank IRQ off-delay from 5s to 1s. At 120Hz the default
+    # fires 600 unnecessary interrupts per idle transition; 1s still
+    # covers fast consumer reconnects.
+    for p in /sys/module/drm/parameters/vblankoffdelay \
+             /sys/module/msm_drm/parameters/vblankoffdelay; do
+        [ -f "$p" ] && echo 1000 > "$p" 2>/dev/null && break
+    done
+
     echo "Done"
 } >> /data/local/tmp/templar_power.log 2>&1
 PWREOF
