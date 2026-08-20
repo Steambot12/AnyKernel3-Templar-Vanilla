@@ -103,7 +103,9 @@ deep_kernel_cleanup() {
 
         # 12. Old kernel init scripts
         rm -f /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
+        rm -f /data/adb/service.d/templar_power_daily.sh 2>/dev/null
         rm -f /data/local/tmp/templar_init.log 2>/dev/null
+        rm -f /data/local/tmp/templar_power.log 2>/dev/null
 
         # 13. Sync to ensure all writes complete
         sync
@@ -393,8 +395,44 @@ sleep 15
 chmod 644 "$LOGFILE" 2>/dev/null
 EOF
 
-    chmod 755 /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
+    # ---- Persistent power efficiency script (survives reboots) ----
+    cat > /data/adb/service.d/templar_power_daily.sh << 'PWREOF'
+#!/system/bin/sh
+# Templar Kernel — Daily Power Efficiency Tuning
+# Runs every boot. Do NOT delete — these settings are not persistent
+# across reboots without this script.
+
+# Wait for boot complete
+while [ "$(getprop sys.boot_completed)" != "1" ]; do
+    sleep 2
+done
+sleep 5
+
+{
+    echo "Templar power tuning applied: $(date)"
+
+    # Skip redundant sync on suspend (Android already syncs)
+    [ -f /sys/power/sync_on_suspend ] && echo 0 > /sys/power/sync_on_suspend
+
+    # Deep suspend instead of s2idle
+    [ -f /sys/power/mem_sleep ] && echo deep > /sys/power/mem_sleep 2>/dev/null
+
+    # Disable proactive compaction (no THP pressure on mobile)
+    echo 0 > /proc/sys/vm/compaction_proactiveness 2>/dev/null
+
+    # Disable ZRAM readahead (no seek latency = no readahead benefit)
+    echo 0 > /proc/sys/vm/page_cluster 2>/dev/null
+
+    # Disable watermark boost (LMKD handles memory pressure)
+    echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
+
+    echo "Done"
+} >> /data/local/tmp/templar_power.log 2>&1
+PWREOF
+
+    chmod 755 /data/adb/service.d/templar_power_daily.sh 2>/dev/null
     ui_print "  ✓ Post-boot script created"
+    ui_print "  ✓ Power efficiency script created"
 }
 
 ## ==============================================
