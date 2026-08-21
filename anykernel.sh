@@ -414,9 +414,6 @@ sleep 5
     # Skip redundant sync on suspend (Android already syncs)
     [ -f /sys/power/sync_on_suspend ] && echo 0 > /sys/power/sync_on_suspend
 
-    # Deep suspend instead of s2idle
-    [ -f /sys/power/mem_sleep ] && echo deep > /sys/power/mem_sleep 2>/dev/null
-
     # Disable proactive compaction (no THP pressure on mobile)
     echo 0 > /proc/sys/vm/compaction_proactiveness 2>/dev/null
 
