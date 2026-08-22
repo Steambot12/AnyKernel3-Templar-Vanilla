@@ -269,31 +269,26 @@ check_kernel_version() {
     version_line=$(strings "$kernel_img" 2>/dev/null | grep -E "^Linux version [0-9]" | head -1)
 
     if [ -n "$version_line" ]; then
-        # Extract version: "Linux version 5.10.260-Templar..." -> "5.10.260"
+        # Extract version: "Linux version 6.18.32-Templar..." -> "6.18.32"
         full_version=$(echo "$version_line" | awk '{print $3}' | cut -d'-' -f1)
         new_kernel_string=$(echo "$full_version" | cut -d'.' -f1-2)
 
         ui_print "  Kernel: $full_version"
     else
-        # Fallback: assume 5.10 if string not found
-        ui_print "  ! Version string not found, assuming 5.10"
-        new_kernel_string="5.10"
+        # Version string not embedded — proceed anyway (image size already validated)
+        ui_print "  ! Version string not found, skipping version report"
+        new_kernel_string="unknown"
     fi
-
-    new_major=$(echo "$new_kernel_string" | cut -d'.' -f1)
-    new_minor=$(echo "$new_kernel_string" | cut -d'.' -f2)
 
     ui_print "→ Version check: $current_kernel → $new_kernel_string"
 
-    # Validate GKI 5.10
-    if [ "$new_major" = "5" ] && [ "$new_minor" = "10" ]; then
-        ui_print "  ✓ GKI 5.10 kernel detected"
-    else
-        ui_print "  ✗ ERROR: Requires GKI 5.10 kernel"
-        ui_print "  Detected: $new_major.$new_minor"
-        ui_print "  This kernel is for Android 11+ GKI 5.10 only"
-        exit 1
-    fi
+    # Accept any GKI version (5.x, 6.x, upstream). Image presence + size
+    # already validated above; kernel version is informational only.
+    new_major=$(echo "$new_kernel_string" | cut -d'.' -f1)
+    case "$new_major" in
+        [0-9]*) ui_print "  ✓ GKI kernel ${new_kernel_string} accepted" ;;
+        *)      ui_print "  ! Version undetermined, flashing anyway" ;;
+    esac
 }
 
 ## Post-install validation
