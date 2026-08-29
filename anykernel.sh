@@ -45,14 +45,11 @@ deep_kernel_cleanup() {
         # DO NOT manipulate live system state (sysfs/procfs) in recovery mode
         # Live system cleanup happens in post-boot script instead
 
-        # 1. Module cleanup (vendor + vendor_dlkm + system)
+        # 1. Module cleanup (cached DLKM under /data only).
+        # Do NOT touch /vendor_dlkm: this zip ships no modules (do.modules=0),
+        # so the new kernel reuses the existing vendor modules in place.
         if [ -d /data/vendor/modules ]; then
             rm -rf /data/vendor/modules/*
-        fi
-
-        if [ -d /vendor_dlkm ]; then
-            find /vendor_dlkm -name "*.ko" -delete 2>/dev/null
-            rm -f /vendor_dlkm/lib/modules/*/modules.* 2>/dev/null
         fi
 
         [ -d /data/system/modules ] && rm -rf /data/system/modules/*
@@ -389,6 +386,9 @@ sleep 15
 # Set readable permissions
 chmod 644 "$LOGFILE" 2>/dev/null
 EOF
+
+    # Magisk/KernelSU skip service.d scripts without the exec bit (X_OK)
+    chmod 755 /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
 
     # ---- Persistent power efficiency script (survives reboots) ----
     cat > /data/adb/service.d/templar_power_daily.sh << 'PWREOF'
