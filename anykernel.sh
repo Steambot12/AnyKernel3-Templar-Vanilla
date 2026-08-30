@@ -394,8 +394,12 @@ EOF
     cat > /data/adb/service.d/templar_power_daily.sh << 'PWREOF'
 #!/system/bin/sh
 # Templar Kernel — Daily Power Efficiency Tuning
-# Runs every boot. Do NOT delete — these settings are not persistent
-# across reboots without this script.
+# Runs every boot (Magisk/KernelSU service.d). Do NOT delete — these are
+# runtime settings, not persistent across reboots.
+#
+# Goal: cut idle/suspend drain by removing needless wakeups. It deliberately
+# does NOT cap CPU frequency: capping makes each task take longer, RAISING
+# busy% and hurting responsiveness — the wrong lever for battery.
 
 # Wait for boot complete
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
@@ -403,28 +407,48 @@ while [ "$(getprop sys.boot_completed)" != "1" ]; do
 done
 sleep 5
 
+# write-if-exists: skip missing nodes silently (portable across SoCs)
+w() { [ -f "$1" ] && echo "$2" > "$1" 2>/dev/null; }
+
 {
     echo "Templar power tuning applied: $(date)"
 
-    # Skip redundant sync on suspend (Android already syncs)
-    [ -f /sys/power/sync_on_suspend ] && echo 0 > /sys/power/sync_on_suspend
+    # --- VM: fewer background wakeups (existing, kept) ---
+    w /sys/power/sync_on_suspend 0             # Android already syncs on suspend
+    w /proc/sys/vm/compaction_proactiveness 0  # no periodic kcompactd wakeups
+    w /proc/sys/vm/page_cluster 0              # zram: no readahead benefit
+    w /proc/sys/vm/watermark_boost_factor 0    # LMKD handles memory pressure
 
-    # Disable proactive compaction (no THP pressure on mobile)
-    echo 0 > /proc/sys/vm/compaction_proactiveness 2>/dev/null
+    # --- VM: stretch periodic timers so the SoC stays in deep idle longer ---
+    w /proc/sys/vm/stat_interval 10            # vmstat updater 1s -> 10s
+    w /proc/sys/vm/dirty_writeback_centisecs 1500  # bg flusher 5s -> 15s
 
-    # Disable ZRAM readahead (no seek latency = no readahead benefit)
-    echo 0 > /proc/sys/vm/page_cluster 2>/dev/null
+    # --- cpuidle: force TEO (safety net) ---
+    # menu + teo both build in; menu outranks teo (rating 20>19) and wins if
+    # the cmdline governor pick is ever lost -> shallow C-states -> idle drain.
+    w /sys/devices/system/cpu/cpuidle/current_governor teo
 
-    # Disable watermark boost (LMKD handles memory pressure)
-    echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
-
-    # Reduce vblank IRQ off-delay from 5s to 1s. At 120Hz the default
-    # fires 600 unnecessary interrupts per idle transition; 1s still
-    # covers fast consumer reconnects.
+    # --- Reduce vblank IRQ off-delay 5s -> 1s ---
+    # At 120Hz the default fires ~600 needless IRQs per idle transition; 1s
+    # still covers fast consumer reconnects.
     for p in /sys/module/drm/parameters/vblankoffdelay \
              /sys/module/msm_drm/parameters/vblankoffdelay; do
         [ -f "$p" ] && echo 1000 > "$p" 2>/dev/null && break
     done
+
+    # --- Boeffla wakelock blocker: kill VENDOR suspend-abort wakeups ---
+    # This is THE lever for reaching deep sleep / ~10mA idle: if suspend keeps
+    # aborting, a vendor wakeup source is holding the AP awake. The in-kernel
+    # curated default list is already active; add DEVICE-SPECIFIC names below.
+    #
+    # Capture the real culprits on-device (screen off, unplugged, ~1 min):
+    #   cat /sys/kernel/debug/wakeup_sources | awk 'NR==1||$3>0' | sort -k3 -rn
+    # then paste the top offenders (';'-separated) into EXTRA_WL.
+    # LEAVE EMPTY until you have real names: a wrong name does nothing, and
+    # blocking an alarm/timer/input source breaks notifications & alarms.
+    EXTRA_WL=""
+    BLK=/sys/class/misc/boeffla_wakelock_blocker/wakelock_blocker
+    [ -n "$EXTRA_WL" ] && w "$BLK" "$EXTRA_WL"
 
     echo "Done"
 } >> /data/local/tmp/templar_power.log 2>&1
