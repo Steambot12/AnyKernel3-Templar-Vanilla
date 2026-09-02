@@ -420,10 +420,17 @@ w() { [ -f "$1" ] && echo "$2" > "$1" 2>/dev/null; }
     w /proc/sys/vm/stat_interval 10            # vmstat updater 1s -> 10s
     w /proc/sys/vm/dirty_writeback_centisecs 1500  # bg flusher 5s -> 15s
 
-    # --- cpuidle: force TEO (safety net) ---
-    # menu + teo both build in; menu outranks teo (rating 20>19) and wins if
-    # the cmdline governor pick is ever lost -> shallow C-states -> idle drain.
-    w /sys/devices/system/cpu/cpuidle/current_governor teo
+    # --- cpuidle: re-assert the INTENDED governor (safety net) ---
+    # menu outranks both nap and teo by rating and wins if the cmdline pick is
+    # ever lost -> shallow C-states -> idle drain. Pin nap (the cmdline pick);
+    # teo only where nap is not built in. Writing teo unconditionally here was
+    # overriding the cmdline every boot, so nap never actually ran.
+    CIG=/sys/devices/system/cpu/cpuidle/current_governor
+    if grep -qw nap /sys/devices/system/cpu/cpuidle/available_governors 2>/dev/null; then
+        w "$CIG" nap
+    else
+        w "$CIG" teo
+    fi
 
     # --- cpuidle: clear USER-disabled idle states ---
     # A vendor tool or a previous kernel can leave deep states disabled, so a
