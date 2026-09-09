@@ -410,15 +410,6 @@ w() { [ -f "$1" ] && echo "$2" > "$1" 2>/dev/null; }
 {
     echo "Templar power tuning applied: $(date)"
 
-    # --- BORE off for daily ---
-    # On-device A/B: scrolling is smoother with burst demotion disabled (EEVDF
-    # alone carries UI responsiveness; demotions only add reweight churn on the
-    # scroll path). Gaming needs no BORE either -- vorpal gaming_mode=1 governs
-    # it. Writing the sysctl also runs the handler's global clean re-derive of
-    # all fair weights, so boot starts from a tidy nice-0 state. No-op when
-    # BORE is not built (node absent). Flip on per-session: echo 1.
-    w /proc/sys/kernel/sched_bore 0
-
     # --- VM: fewer background wakeups (existing, kept) ---
     w /sys/power/sync_on_suspend 0             # Android already syncs on suspend
     w /proc/sys/vm/compaction_proactiveness 0  # no periodic kcompactd wakeups
@@ -503,6 +494,17 @@ w() { [ -f "$1" ] && echo "$2" > "$1" 2>/dev/null; }
     [ -n "$EXTRA_WL" ] && w "$BLK" "$EXTRA_WL"
 
     echo "Done"
+
+    # --- BORE: converge boot-time weight state (one-time) ---
+    # A fresh boot leaves each task's weight latched from fork-time burst
+    # state (weight updates are lazy per-task). Writing sched_bore re-runs the
+    # sysctl handler's global re-derive of all fair weights -- the same clean
+    # state a manual off/on toggle produces. Node is absent when BORE is not
+    # built, so w() no-ops. Fire after the boot fork-storm has settled.
+    (
+        sleep 60
+        w /proc/sys/kernel/sched_bore 1
+    ) >> /data/local/tmp/templar_power.log 2>&1 &
 
     # --- Wakeup-source report (diagnostic only, no tuning) ---
     # Idle/deepsleep drain and "big cores wake every few seconds" are almost
