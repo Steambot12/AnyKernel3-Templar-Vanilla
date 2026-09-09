@@ -495,6 +495,17 @@ w() { [ -f "$1" ] && echo "$2" > "$1" 2>/dev/null; }
 
     echo "Done"
 
+    # --- BORE: converge boot-time weight state (one-time) ---
+    # A fresh boot leaves each task's weight latched from fork-time burst
+    # state (weight updates are lazy per-task). Writing sched_bore re-runs the
+    # sysctl handler's global re-derive of all fair weights -- the same clean
+    # state a manual off/on toggle produces. Node is absent when BORE is not
+    # built, so w() no-ops. Fire after the boot fork-storm has settled.
+    (
+        sleep 60
+        w /proc/sys/kernel/sched_bore 1
+    ) >> /data/local/tmp/templar_power.log 2>&1 &
+
     # --- Wakeup-source report (diagnostic only, no tuning) ---
     # Idle/deepsleep drain and "big cores wake every few seconds" are almost
     # always a vendor wakeup source, which no kernel config can name in
