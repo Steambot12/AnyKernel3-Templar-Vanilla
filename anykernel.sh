@@ -99,8 +99,7 @@ deep_kernel_cleanup() {
         rm -f /data/bootconfig 2>/dev/null
 
         # 12. Old kernel init scripts
-        rm -f /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
-        rm -f /data/local/tmp/templar_init.log 2>/dev/null
+        : # no init scripts created since set_postflash_configs removed
 
         # 13. Sync to ensure all writes complete
         sync
@@ -314,80 +313,6 @@ post_install_check() {
     fi
 }
 
-## Post-boot script setup
-set_postflash_configs() {
-    mkdir -p /data/adb/service.d 2>/dev/null
-
-    cat > /data/adb/service.d/templar_kernel_init.sh << 'EOF'
-#!/system/bin/sh
-LOGFILE="/data/local/tmp/templar_init.log"
-
-# Wait for boot complete
-while [ "$(getprop sys.boot_completed)" != "1" ]; do
-    sleep 2
-done
-
-# Additional stabilization delay
-sleep 15
-
-{
-    echo "========================================"
-    echo "Templar Kernel Post-Boot Init"
-    echo "$(date)"
-    echo "========================================"
-    echo ""
-
-    echo "System Info:"
-    echo "  Kernel: $(uname -r)"
-    echo "  Android: $(getprop ro.build.version.release)"
-    echo "  Security patch: $(getprop ro.build.version.security_patch)"
-    echo ""
-
-    echo "CPU Info:"
-    cat /proc/cpuinfo | grep -E "Hardware|processor" | head -5
-    echo ""
-
-    echo "I/O Schedulers:"
-    for q in /sys/block/*/queue/scheduler; do
-        [ -f "$q" ] && echo "  $(basename $(dirname $(dirname $q))): $(cat $q | grep -o '\[.*\]' | tr -d '[]')"
-    done
-    echo ""
-
-    echo "CPU Governors:"
-    for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-        if [ -f "$cpu" ]; then
-            cpu_num=$(echo "$cpu" | grep -o 'cpu[0-9]*' | head -1)
-            echo "  $cpu_num: $(cat $cpu)"
-        fi
-    done | head -4
-    echo ""
-
-    echo "Memory Info:"
-    free -h | grep -E "Mem:|Swap:"
-    echo ""
-
-    # No drop_caches here: it throws away the page cache the boot just
-    # populated, so every app re-reads from flash -- slower AND more power.
-
-    echo "========================================"
-    echo "✓ Post-boot init complete"
-    echo "========================================"
-
-    # Self-destruct after successful run
-    sleep 5
-    rm -f /data/adb/service.d/templar_kernel_init.sh
-} > "$LOGFILE" 2>&1
-
-# Set readable permissions
-chmod 644 "$LOGFILE" 2>/dev/null
-EOF
-
-    # Magisk/KernelSU skip service.d scripts without the exec bit (X_OK)
-    chmod 755 /data/adb/service.d/templar_kernel_init.sh 2>/dev/null
-
-    ui_print "  ✓ Post-boot script created"
-}
-
 ## ==============================================
 ## MAIN INSTALLATION FLOW
 ## ==============================================
@@ -422,9 +347,6 @@ ui_print " "
 # Validation
 post_install_check
 
-# Setup post-boot script
-set_postflash_configs
-
 ui_print " "
 ui_print "============================================"
 ui_print "  ✓ Installation Complete"
@@ -434,8 +356,6 @@ ui_print "  Backup: /sdcard/${KERNEL_NAME}Kernel_Backup"
 ui_print " "
 ui_print "  NEXT STEPS:"
 ui_print "  1. Reboot device"
-ui_print "  2. Wait 2-3 minutes for init"
-ui_print "  3. Check: /data/local/tmp/templar_init.log"
 ui_print " "
 ui_print "  If bootloop occurs:"
 ui_print "  → Flash: ${KERNEL_NAME}-Backup_*.img"
